@@ -7,8 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define BUFLEN 512 // Tamanho do buffer
-#define PORT 9877  // Porto do qual vamos enviar
+#define BUFLEN 512  // Tamanho do buffer
+#define PORT 9877   // Porto do qual vamos enviar
 void erro(char *s) {
     perror(s);
     exit(1);
@@ -41,8 +41,8 @@ int main(int argc, char *argv[]) {
     si_minha.sin_addr.s_addr = htonl(INADDR_ANY);
 */
     si_outra.sin_family = AF_INET;
-    si_outra.sin_port = htons(atoi(argv[2]));
     si_outra.sin_addr.s_addr = ((struct in_addr *)(hostPtr->h_addr))->s_addr;
+    si_outra.sin_port = htons(atoi(argv[2]));
 
     // Enviar a palavra para o server
     int sent_len = sendto(s, (const char *)argv[3], strlen(argv[3]), 0,
