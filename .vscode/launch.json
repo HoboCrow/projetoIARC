@@ -10,9 +10,8 @@
             "request": "launch",
             "program": "${fileDirname}/${fileBasenameNoExtension}",
             "args": [
-                "localhost",
-                "9000",
-                "a"
+                "3010",
+                "5"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

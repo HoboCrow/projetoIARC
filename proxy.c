@@ -17,11 +17,12 @@
 
 void process_client(int fd);
 void erro(char *msg);
-int num_clientes = 0;
-int SERVER_PORT = 0;
+int num_clientes = 20;
+int PROXY_PORT = 0;
+int SERVER_PORT = 3010;
 int NUM_MAX_CLIENTES;
 
-void server_tcp()
+void porxy_tcp()
 {
     int fd, client;
     struct sockaddr_in addr, client_addr;
@@ -30,7 +31,7 @@ void server_tcp()
     bzero((void *)&addr, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(SERVER_PORT);
+    addr.sin_port = htons(PROXY_PORT);
 
     if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         erro("na funcao socket");
@@ -38,9 +39,9 @@ void server_tcp()
         erro("na funcao bind");
 
     char selfAddr[INET_ADDRSTRLEN];
-    printf("Server listening on %s:%d\n",
+    printf("Proxy listening on %s:%d\n",
            inet_ntop(AF_INET, &addr.sin_addr, selfAddr, INET_ADDRSTRLEN),
-           SERVER_PORT);
+           PROXY_PORT);
     if (listen(fd, NUM_MAX_CLIENTES) < 0)
         erro("na funcao listen");
     client_addr_size = sizeof(client_addr);
@@ -55,14 +56,6 @@ void server_tcp()
                         (socklen_t *)&client_addr_size);
         if (client > 0)
         {
-            num_clientes++;
-            char clientAddrSt[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &client_addr.sin_addr, clientAddrSt,
-                      INET_ADDRSTRLEN);
-
-            char welcomeBuff[BUFSIZ];
-            sprintf(welcomeBuff, "IP: %s:%d clients: %d", clientAddrSt,
-                    ntohs(client_addr.sin_port), num_clientes);
             if (fork() == 0)
             {
                 close(fd);
@@ -74,7 +67,7 @@ void server_tcp()
     }
 }
 
-void server_udp()
+void proxy_udp()
 {
     struct sockaddr_in si_minha, si_outra;
 
@@ -89,7 +82,7 @@ void server_udp()
     }
 
     si_minha.sin_family = AF_INET;
-    si_minha.sin_port = htons(SERVER_PORT);
+    si_minha.sin_port = htons(PROXY_PORT);
     si_minha.sin_addr.s_addr = htonl(INADDR_ANY);
 
     // Associa o socket à informação de endereço
@@ -128,6 +121,30 @@ void server_udp()
     close(s);
 }
 
+int main(int argc, char const *argv[])
+{
+    if (argc != 2)
+    {
+        perror("Numero errado de parametros. Usar:\n.\\proxy [PORT]");
+        return -1;
+    }
+    PROXY_PORT = atoi(argv[1]);
+    if (PROXY_PORT == 0)
+    {
+        perror("Proxy port is invalid");
+        return -1;
+    }
+    if (fork() != 0)
+    {
+        porxy_tcp();
+    }
+    else
+    {
+        //proxy_udp();
+    }
+    return 0;
+}
+
 int calcNum(char *string, int *valid)
 {
     int len = strlen(string);
@@ -158,100 +175,53 @@ void process_client(int client_fd)
     int nread = 0;
     char sendBuffer[BUF_SIZE];
     char recvBuffer[BUF_SIZE];
+    // Buscar o endereço do proxy
+    char endServer[100];
+    int fd;
+    struct sockaddr_in addr;
+    struct hostent *hostPtr;
+    strcpy(endServer, "localhost");
+    if ((hostPtr = gethostbyname(endServer)) == 0)
+        erro("Nao consegui obter endereço");
+
+    bzero((void *)&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = ((struct in_addr *)(hostPtr->h_addr))->s_addr;
+    addr.sin_port = htons((short)SERVER_PORT);
+
+    // Connectar ao proxy
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        erro("socket");
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        erro("Connect");
 
     while (1)
     {
-        char *saveptr;
-        char *delim = " ";
-        printf("Waiting for client...\n");
+        printf("Waiting for client op\n");
         nread = read(client_fd, recvBuffer, BUF_SIZE);
-        if (nread <= 0)
+        if (nread == 0)
         {
-            printf("Client disconnected\n");
+            printf("Client ended connection.\n");
             return;
         }
         recvBuffer[nread] = '\0';
         printf("Client wrote: %s\n", recvBuffer);
-        char *comando = strtok_r(recvBuffer, delim, &saveptr);
-        if (strcmp(comando, "LIST") == 0)
+        write(fd, recvBuffer, strlen(recvBuffer));
+        nread = read(fd, sendBuffer, BUF_SIZE);
+        if (nread == 0)
         {
-            printf("O Cliente quer uma listagem:\n");
-            // TODO ler os dados do cliente
-            strcpy(sendBuffer, "OK");
-            write(client_fd, sendBuffer, strlen(sendBuffer));
-        }
-        else if (strcmp(comando, "DOWNLOAD") == 0)
-        {
-            printf("O cliente quer um download\n");
-            int encrypt = 0;
-            char *enc = strtok_r(NULL, delim, &saveptr);
-            char *name = "";
-            if (enc != NULL)
-            {
-                if (strcmp(enc, "ENC") == 0)
-                    encrypt = 1;
-                name = strtok_r(NULL, delim, &saveptr);
-                if (name == NULL)
-                    printf("Download requested null file");
-            }
-            else
-            {
-                strcpy(sendBuffer, "Wrong DOWNLOAD syntax");
-                write(client_fd, sendBuffer, strlen(sendBuffer));
-                continue;
-            }
-            printf("ENC: %d Name: %s\n", encrypt, name);
-            strcpy(sendBuffer, "OK");
-            write(client_fd, sendBuffer, strlen(sendBuffer));
-        }
-        else if (strcmp(recvBuffer, "EXIT") == 0)
-        {
-            printf("Client exited.\n");
-            fflush(stdout);
-            close(client_fd);
+            printf("Server ended connection.");
             return;
         }
-        else
-        {
-            printf("Unkown command.\n");
-            char *ans = "UNKOWN COMMAND";
-            write(client_fd, ans, strlen(ans));
-        }
+        sendBuffer[nread] = '\0';
+        printf("Server answer: %s\n", sendBuffer);
+        write(client_fd, sendBuffer, strlen(sendBuffer));
     }
+    printf("Proxy client process ended\n");
 }
 
 void erro(char *msg)
 {
     printf("Erro: %s\n", msg);
     exit(-1);
-}
-
-int main(int argc, char const *argv[])
-{
-    if (argc != 3)
-    {
-        perror("Numero errado de parametros. Usar:\n.\\server [PORT] [NUM_MAX_CLIENTES]");
-        return -1;
-    }
-    SERVER_PORT = atoi(argv[1]);
-    if (SERVER_PORT == 0)
-    {
-        perror("Server port is invalid");
-        return -1;
-    }
-    NUM_MAX_CLIENTES = atoi(argv[2]);
-    if (NUM_MAX_CLIENTES < 1)
-    {
-        perror("Numero maximo de clitntes invalido");
-        return -1;
-    }
-    if (fork() == 0)
-    {
-        server_tcp();
-    }
-    else
-    {
-        server_udp();
-    }
-    return 0;
 }
