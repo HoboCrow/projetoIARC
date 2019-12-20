@@ -21,8 +21,11 @@
 #define BUF_SIZE 1024
 #define FILE_DIR "server_files"
 
-unsigned char nonce[] = {123};
-unsigned char key[] = {123};
+unsigned char key[crypto_secretbox_KEYBYTES] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1,
+                                                2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3,
+                                                4, 5, 6, 7, 8, 9, 1, 2, 3, 4};
+unsigned char nonce[crypto_secretbox_NONCEBYTES] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5};
 
 char *getFileList(char *path) {
     DIR *d;
@@ -33,7 +36,8 @@ char *getFileList(char *path) {
         char offset = 0;
         while ((dir = readdir(d)) != NULL) {
             char *file = dir->d_name;
-            if (strcmp(file, ".") == 0 || strcmp(file, "..") == 0) continue;
+            if (strcmp(file, ".") == 0 || strcmp(file, "..") == 0)
+                continue;
             strcpy(fileListSt + offset, file);
             strcpy(fileListSt + offset + strlen(file), "\n");
             offset += strlen(file) + 1;
@@ -61,7 +65,8 @@ void server_tcp() {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(SERVER_PORT);
 
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) erro("na funcao socket");
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        erro("na funcao socket");
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
         erro("na funcao bind");
 
@@ -69,7 +74,8 @@ void server_tcp() {
     printf("Server listening on %s:%d\n",
            inet_ntop(AF_INET, &addr.sin_addr, selfAddr, INET_ADDRSTRLEN),
            SERVER_PORT);
-    if (listen(fd, NUM_MAX_CLIENTES) < 0) erro("na funcao listen");
+    if (listen(fd, NUM_MAX_CLIENTES) < 0)
+        erro("na funcao listen");
     client_addr_size = sizeof(client_addr);
     while (1) {
         // clean finished child processes, avoiding zombies
@@ -148,9 +154,11 @@ void server_udp() {
             char *enc = strtok_r(NULL, delim, &saveptr);
             char *name = "";
             if (enc != NULL) {
-                if (strcmp(enc, "ENC") == 0) encrypt = 1;
+                if (strcmp(enc, "ENC") == 0)
+                    encrypt = 1;
                 name = strtok_r(NULL, delim, &saveptr);
-                if (name == NULL) printf("Download requested null file");
+                if (name == NULL)
+                    printf("Download requested null file");
             } else {
                 strcpy(sendBuffer, "Wrong DOWNLOAD syntax");
                 sendto(s, sendBuffer, BUF_SIZE, 0, (struct sockaddr *)&si_outra,
@@ -172,7 +180,7 @@ void server_udp() {
                 continue;
             }
             struct stat file_stat;
-            fstat(file_fd, &file_stat);  // TODO check return values
+            fstat(file_fd, &file_stat); // TODO check return values
             // mandar o tamanho do ficheiro
             printf("Sending file size: %ld\n", file_stat.st_size);
             snprintf(sendBuffer, BUF_SIZE, "%ld", file_stat.st_size);
@@ -263,9 +271,11 @@ void process_client(int client_fd) {
             char *enc = strtok_r(NULL, delim, &saveptr);
             char *name = "";
             if (enc != NULL) {
-                if (strcmp(enc, "ENC") == 0) encrypt = 1;
+                if (strcmp(enc, "ENC") == 0)
+                    encrypt = 1;
                 name = strtok_r(NULL, delim, &saveptr);
-                if (name == NULL) printf("Download requested null file");
+                if (name == NULL)
+                    printf("Download requested null file");
             } else {
                 strcpy(sendBuffer, "Wrong DOWNLOAD syntax");
                 write(client_fd, sendBuffer, BUF_SIZE);
@@ -284,7 +294,7 @@ void process_client(int client_fd) {
                 continue;
             }
             struct stat file_stat;
-            fstat(file_fd, &file_stat);  // TODO check return values
+            fstat(file_fd, &file_stat); // TODO check return values
             // mandar o tamanho do ficheiro
             printf("Sending file size: %ld\n", file_stat.st_size);
             snprintf(sendBuffer, BUF_SIZE, "%ld", file_stat.st_size);
@@ -299,16 +309,17 @@ void process_client(int client_fd) {
                     printf("Sent bytes: %d\n", sent_bytes);
                     remaining_bytes -= sent_bytes;
                 }
-            } else { /*
-                 unsigned char readBuffer[BUF_SIZE];
-                 unsigned char enctyptBuffer[BUF_SIZE];
-                 while (remaining_bytes > 0) {
-                     int r = read(file_fd, readBuffer, BUF_SIZE);
-                     crypto_secretbox_easy(enctyptBuffer, readBuffer, BUF_SIZE,
-                                           nonce, key);
-                     write(client_fd, enctyptBuffer, BUF_SIZE);
-                     remaining_bytes -= r;
-                 }*/
+            } else {
+                int mlen = BUF_SIZE - crypto_secretbox_MACBYTES;
+                unsigned char readBuffer[mlen];
+                unsigned char enctyptBuffer[BUF_SIZE];
+                while (remaining_bytes > 0) {
+                    int r = read(file_fd, readBuffer, mlen);
+                    crypto_secretbox_easy(enctyptBuffer, readBuffer, mlen,
+                                          nonce, key);
+                    write(client_fd, enctyptBuffer, BUF_SIZE);
+                    remaining_bytes -= r;
+                }
             }
             printf("File sent!\n");
 
@@ -331,13 +342,12 @@ void erro(char *msg) {
 }
 
 int main(int argc, char const *argv[]) {
-    // if (sodium_init() < 0) {
-    /* panic! the library couldn't be initialized, it is not safe to use */
-    //}
+    if (sodium_init() < 0) {
+        /* panic! the library couldn't be initialized, it is not safe to use */
+    }
     if (argc != 3) {
-        perror(
-            "Numero errado de parametros. Usar:\n.\\server [PORT] "
-            "[NUM_MAX_CLIENTES]");
+        perror("Numero errado de parametros. Usar:\n.\\server [PORT] "
+               "[NUM_MAX_CLIENTES]");
         return -1;
     }
     SERVER_PORT = atoi(argv[1]);

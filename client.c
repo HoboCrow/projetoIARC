@@ -23,19 +23,21 @@
 #define UDP 0
 #define TCP 1;
 
-unsigned char nonce[] = {123};
-unsigned char key[] = {123};
+unsigned char key[crypto_secretbox_KEYBYTES] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1,
+                                                2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3,
+                                                4, 5, 6, 7, 8, 9, 1, 2, 3, 4};
+unsigned char nonce[crypto_secretbox_NONCEBYTES] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5};
 
 void erro(char *msg);
 
 int main(int argc, char const *argv[]) {
-    // if (sodium_init() < 0) {
-    /* panic! the library couldn't be initialized, it is not safe to use */
-    //}
+    if (sodium_init() < 0) {
+        /* panic! the library couldn't be initialized, it is not safe to use */
+    }
     if (argc != 5)
-        erro(
-            "Numero de parametros de entrada errado.\nUsar: client.out [IP "
-            "Proxy] [IP server] [PORT] [UDP/TCP]");
+        erro("Numero de parametros de entrada errado.\nUsar: client.out [IP "
+             "Proxy] [IP server] [PORT] [UDP/TCP]");
 
     const char *ipProxy = argv[1];
     // const char *ipServer = argv[2];
@@ -44,7 +46,8 @@ int main(int argc, char const *argv[]) {
     int PORT;
     // int PROTOCOL;
 
-    if ((PORT = atoi(argv[3])) == 0) erro("PORT tem valor invalido\n");
+    if ((PORT = atoi(argv[3])) == 0)
+        erro("PORT tem valor invalido\n");
     /*
     if (strcmp(protocol, "UDP") == 0) {
         PROTOCOL = UDP;
@@ -68,7 +71,8 @@ int main(int argc, char const *argv[]) {
     addr.sin_port = htons((short)PORT);
 
     // Connectar ao proxy TCP
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) erro("socket");
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        erro("socket");
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("connect failed");
         erro("connect");
@@ -99,7 +103,8 @@ int main(int argc, char const *argv[]) {
         if (strcmp(commando, "LIST") == 0) {
             write(fd, sendBuffer, BUF_SIZE);
             n = read(fd, recvBuffer, BUF_SIZE);
-            if (n == 0) erro("Conecao morreu\n");
+            if (n == 0)
+                erro("Conecao morreu\n");
             recvBuffer[n] = '\0';
             printf("%s\n", recvBuffer);
         } else if (strcmp(commando, "DOWNLOAD") == 0) {
@@ -111,7 +116,8 @@ int main(int argc, char const *argv[]) {
                          name);
                 write(fd, sendBuffer, BUF_SIZE);
                 n = read(fd, recvBuffer, BUF_SIZE);
-                if (n == 0) erro("Conexao morreu\n");
+                if (n == 0)
+                    erro("Conexao morreu\n");
                 recvBuffer[n] = '\0';
                 printf("%s\n", recvBuffer);
                 n = read(fd, recvBuffer, BUF_SIZE);
@@ -134,6 +140,26 @@ int main(int argc, char const *argv[]) {
                         fwrite(recvBuffer, sizeof(char), rcv_len, new_file);
                         remain_data -= rcv_len;
                         memset(recvBuffer, 0, BUF_SIZE);
+                        printf("remain_data : %d\n", remain_data);
+                    }
+                } else {
+                    int mlen = BUF_SIZE - crypto_secretbox_MACBYTES;
+                    unsigned char decoded[BUF_SIZE];
+                    unsigned char recieveEncoded[BUF_SIZE];
+                    while ((remain_data > 0) &&
+                           ((rcv_len = recv(fd, recieveEncoded, BUF_SIZE, 0)) >
+                            0)) {
+                        printf("buffer: %s\n", recieveEncoded);
+                        int success = crypto_secretbox_open_easy(
+                            decoded, recieveEncoded, BUF_SIZE, nonce, key);
+                        if (success < 0) {
+                            printf("\n\nDecoding failed!\n\n");
+                        }
+                        printf("NORM: %s\n", recieveEncoded);
+                        printf("DECO: %s\n", decoded);
+                        fwrite(decoded, sizeof(char), mlen, new_file);
+                        remain_data -= rcv_len;
+                        memset(recieveEncoded, 0, BUF_SIZE);
                         printf("remain_data : %d\n", remain_data);
                     }
                 }

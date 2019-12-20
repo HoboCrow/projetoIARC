@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -22,13 +24,16 @@ int PROXY_PORT = 0;
 int SERVER_PORT = 3010;
 int NUM_MAX_CLIENTES;
 struct sockaddr_in proxy_addr, server_addr;
+int saveFlag = 1;
+FILE *logFile;
 
 void porxy_tcp() {
     int fd, client;
     struct sockaddr_in client_addr;
     int client_addr_size;
 
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) erro("na funcao socket");
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        erro("na funcao socket");
     if (bind(fd, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr)) < 0)
         erro("na funcao bind");
 
@@ -36,7 +41,8 @@ void porxy_tcp() {
     printf("Proxy listening on %s:%d\n",
            inet_ntop(AF_INET, &proxy_addr.sin_addr, selfAddr, INET_ADDRSTRLEN),
            PROXY_PORT);
-    if (listen(fd, NUM_MAX_CLIENTES) < 0) erro("na funcao listen");
+    if (listen(fd, NUM_MAX_CLIENTES) < 0)
+        erro("na funcao listen");
     client_addr_size = sizeof(client_addr);
     while (1) {
         // clean finished child processes, avoiding zombies
@@ -133,11 +139,31 @@ int main(int argc, char const *argv[]) {
     server_addr.sin_addr.s_addr = ((struct in_addr *)(hostPtr->h_addr))->s_addr;
     server_addr.sin_port = htons((short)SERVER_PORT);
 
+    // Criar o ficheiro de log
+    logFile = fopen("proxy_log.txt", "w");
+
     if (fork() != 0) {
         porxy_tcp();
-    } else {
+    } else if (fork() != 0) {
         proxy_udp();
+    } else {
+        char commandBuffer[BUF_SIZE];
+        while (1) {
+            // ler comando do user e enviar
+            printf("Insira um comando:");
+            fgets(commandBuffer, BUF_SIZE, stdin);
+            commandBuffer[strlen(commandBuffer) - 1] = '\0';
+            if (strcmp(commandBuffer, "SAVE") == 0) {
+                saveFlag = saveFlag ? 0 : 1;
+                if (saveFlag) {
+                    printf("Now saving to file\n");
+                } else {
+                    printf("Saving disabled\n");
+                }
+            }
+        }
     }
+    fclose(logFile);
     return 0;
 }
 
@@ -167,9 +193,11 @@ void process_client(int client_fd) {
     char sendBuffer[BUF_SIZE];
     char recvBuffer[BUF_SIZE];
     int fd;
+    char tempBuff[BUF_SIZE];
 
     // Connectar ao proxy
-    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) erro("socket");
+    if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        erro("socket");
     if (connect(fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
         erro("Connect");
 
@@ -182,6 +210,13 @@ void process_client(int client_fd) {
             if (nread == 0) {
                 printf("Server ended connection.");
                 return;
+            }
+            if (saveFlag) {
+                printf("Logged\n");
+                sprintf(tempBuff, "Server mandou ao cliente na socket %d:\n",
+                        client_fd);
+                fwrite(tempBuff, sizeof(char), strlen(tempBuff), logFile);
+                fwrite(recvBuffer, sizeof(char), BUF_SIZE, logFile);
             }
             sendBuffer[nread] = '\0';
             char printBuff[30];
